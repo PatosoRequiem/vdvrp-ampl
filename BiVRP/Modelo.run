@@ -1,0 +1,193 @@
+reset;
+model modelo06-12.mod;
+data Modelo.dat;
+
+
+option solver gurobi 								;
+option gurobi_options 'intfeastol = 1e-9' 				;
+option solver_msg 0 								;
+option DisplayInterval 1 							;
+option gurobi_options 'outlev 1 logfreq 1 timing 1' ;
+option presolve 10 									;
+option show_stats 1 								;
+
+param Ttotal 			default 0 ;
+
+param TCPU1{objetivos} 		default 0 ;		#guardar tiempo de CPU
+param MVF{objetivos}		default 0 ;		#Guardan resultados MF
+param PVF{objetivos} 		default 0 ;		#Guardan resultados PV
+param f{objetivos, objetivos}	default 0 ; 
+
+param TCPU2{ejecuciones} 	default 0 ;		# TIEMPO DE DIFERENTES PONDERADORES
+param FN1{ejecuciones} 		default 0 ;		#Valor objetivo 1 normalizado
+param FN2{ejecuciones} 		default 0 ;		#Valor objetivo 2 normalizado
+param F1{ejecuciones} 		default 0 ;		#Valor F1
+param F2{ejecuciones} 		default 0 ;		#Valor F2
+param BT1{ejecuciones} 		default 0 ;		#Guarda ponderador objetivo 1
+param BT2{ejecuciones} 		default 0 ; 	#Guarda ponderador objetivo 2
+
+
+#Parametro auxiliar para la secuencia de la ruta.
+param aux1 default 0; 
+param aux2 default 0; 
+
+for{p in P}{
+	let e[1,20,p]:=0;
+	let e[20,1,p]:=0.000001;
+	let g[1,20,p]:=0;
+	let g[20,1,p]:=0.000001;
+	let T[1,20,p]:=0;
+	let T[20,1,p]:=0.000001;
+	let tt[20,p]:=0;
+	let tt[1,p]:=0;
+	let ee[20,p]:=0;
+	let ee[1,p]:=0;
+	let gg[20,p]:=0;
+	let gg[1,p]:=0;
+	};
+	
+#Busqueda del mejor y peor valor objetivo#
+for {hh in objetivos}{
+	
+	printf "\n  Objetivo ::::::: %s\n", hh					;
+
+	let h := hh 								;		#toma los objetivos 1 y 2
+	
+	objective FO1 								;
+	let Ttotal := time() 						;	#medir instante de tiempo
+	solve 										;
+	let TCPU1[hh] := time() - Ttotal 			;	#tiempo de resolucion 
+	
+	for {i in objetivos}{
+		if F[i] < MV[i] then {		
+			let MV[i] := F[i] 				;
+		}
+		if F[i] > PV[i] then {
+			let PV[i] := F[i] 				;
+		}
+		let MVF[i] := MV[i]						;	#Guardar en las variables anteriormente
+		let PVF[i] := PV[i]						;	#Guardar en las variables anteriormente
+
+		let f[hh,i] := F[i]						;	#Guardar valor de la funcion objetivo de cada objetivo
+		
+					
+	}
+
+	
+printf "TIEMPO CPU\n" ;
+printf "%.4f\n" , sum{i in objetivos}TCPU1[i] + sum{i in ejecuciones}TCPU2[i] ;
+
+printf "\n" ;
+printf "----------------------------------------------------------\n" ;
+printf "----------------------------------------------------------\n" ;
+printf "----------------------------------------------------------\n" ;
+printf "\n" 
+
+;
+
+	reset data X, Y, t, F, alpha			;
+	}
+	
+display MVF[1], MVF[2], PVF[1], PVF[2], MV[1], MV[2], PV[1], PV[2];
+
+/*for {i in objetivos}{ # Para instancias cuando da negativo
+	let MV[i] := MV[i]*2;
+	}*/
+	
+#Frontera de pareto#
+
+for {hh in ejecuciones}{
+	
+	printf "\n  Ejecucion ::::::: %s\n"	, hh		;
+	
+	for {i in objetivos}{
+		let betha[i] := sigma[hh,i] 				;		#Toma los ponderadores segun el objetivo 
+	}
+	
+	objective FO2									;	#objetivos de la normalizacion
+	let Ttotal := time() 							;
+	solve 											;
+	let TCPU2[hh] := time() - Ttotal 				;
+	
+	let FN1[hh] := (F[1] - MV[1])/(PV[1] - MV[1])	;
+	let FN2[hh] := (F[2] - MV[2])/(PV[2] - MV[2])	;
+	let F1[hh] := F[1]								;		#guardar los datos
+	let F2[hh] := F[2]								;
+	let BT1[hh] := sigma[hh,1]						;
+	let BT2[hh] := sigma[hh,2]						;
+	display F1[hh];
+	display F2[hh];
+	display betha[1];
+	display betha [2];
+	
+
+		
+	for{v in V, k in K}{
+		let aux1 := O;
+		repeat while aux1 !=20{
+			for{p in P, j in N:(aux1,j) in A and X[aux1,j,p,v,k]>=0.01}{
+				let aux2 := j;
+				if aux1 = O then {
+					printf"El vehículo %s parte desde la bogeda %s en la vuelta %s a las %s (Espero: %6.3f horas antes de partir) \n",k,aux1,v,t[aux1,v,k], alpha[v,k] ; 
+				}	
+				printf"  El vehículo %s sale del nodo %s al %s (%6.3f) con un tiempo de viaje de %6.3f, tiempo de espera de %6.3f y sale del nodo a las %6.3f \n", k, aux1, aux2, t[aux1,v,k], T[aux1,aux2,p], tt[aux2,p], t[aux2,v,k];
+			};
+			let aux1 := aux2;
+		}
+	}; 
+	
+	
+	
+
+/*	for { i in N, j in N, p in P, v in V, k in K:i!=j and X[i,j,p,v,k] == 1}
+		{ printf "%s %s %s %s %s\n", i,j,p,v,k;}
+			printf "\n" ;
+		*/
+	for{k in K, v in V, i in N, j in N, p in P: (i,j) in A and X[i,j,p,v,k] !=0}{
+		printf"se va desde el nodo %d  al nodo %d entrando al arco en el intervalo temporal %d en la vuelta %d del vehiculo %d\n",i,j,p,v,k;
+		};
+		
+	for{i in N, k in K, v in V:Y[i,v,k]!=0}{
+		printf"atiende al cliente %d en la vuelta %d del vehiculo %d\n",i,v,k;
+		};
+#	display X, Y;
+
+
+/*		
+	for{j in N, v in V, k in K: t[j,v,k]*60>0}{
+		printf"el tiempo hasta el nodo %d en la vuelta %d del camion %d es: %6.3f \n",j,v,k,t[j,v,k];
+		}
+
+	for {k in K}{
+        printf "vehículo %d \n", k ;
+	for {v in V}{
+		for {p in P, i in N, j in N: (i,j) in A and X[i,j,p,v,k]!=0}{
+			printf"se va desde el nodo %d  al nodo %d entrando al arco en el intervalo temporal %d en la vuelta %d\n",i,j,p,v;
+			};
+		printf "\n";}
+	printf"\n";}
+
+display X,Y;
+display t;
+display alpha;
+display FO2;
+*/
+
+printf "TIEMPO CPU\n" ;
+printf "%.4f\n" , sum{i in objetivos}TCPU1[i] + sum{i in ejecuciones}TCPU2[i] ;
+
+printf "\n" ;
+printf "----------------------------------------------------------\n" ;
+printf "----------------------------------------------------------\n" ;
+printf "----------------------------------------------------------\n" ;
+printf "\n" 
+
+		;
+	reset data X, Y, t, F, alpha			;
+	}
+
+display MVF, PVF, TCPU1 > mejorypeorvalor.txt;
+display FN1, FN2, F1, F2, BT1, BT2, TCPU2 > tabla.txt ;
+
+
+		
